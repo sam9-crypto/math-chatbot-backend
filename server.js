@@ -102,7 +102,9 @@ Choose "kind":
 - "diagram": anything else that a drawing explains (geometry figures, free-body and force diagrams, ray and lens diagrams, circuits, cell or organ or system diagrams, apparatus, particle models, flowcharts, number lines).
 - "none": if a picture would not help or you cannot draw it accurately.
 
-Fields for every kind: "kind", "title" (at most 60 characters), "caption" (one or two sentences saying what to look at).
+Write the fields in this order: "kind", then "plan", then "title" (at most 60 characters), then "caption" (one or two sentences saying what to look at), then the fields for the kind.
+
+"plan": a short private note, at most 500 characters. For a diagram, list the key coordinates you will use, the direction of every arrow, and confirm each point of the checklist below. For a graph, name the key points and the range you will show. The student never sees it.
 
 Graph fields:
 - "xLabel" and "yLabel": axis labels with units, for example "time t (s)".
@@ -111,19 +113,35 @@ Graph fields:
 - "series": 1 to 4 items. Each has a "label" and EITHER "expr" OR "points".
   - "expr": a formula in x using only numbers, the letter x, the operators + - * / ^, parentheses, and these names: sin cos tan asin acos atan sinh cosh tanh exp log ln log10 log2 sqrt cbrt abs floor ceil round sign min max pow mod pi e. Use * for every multiplication (write 2*x, never 2x). Use x as the variable even when the horizontal axis is time. Write only the right-hand side, like "x^2 - 5*x + 6".
   - "points": at most 60 pairs [x, y] for data or curves with no simple formula. Make them mathematically and physically plausible.
-- "markers": optional, at most 8 important points like {"x": 2, "y": 0, "label": "root"} (roots, vertex, intersections).
+- "markers": optional, at most 5 important points like {"x": 2, "y": 0, "label": "(2, 0)"}. Keep labels short, and skip markers that would sit very close to each other.
 
 Diagram field:
 - "svg": a complete SVG string. Rules:
   - Start with <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"> (the viewBox can be up to 500 wide or tall) and end with </svg>. No width or height attributes.
   - Use only these elements: svg, g, line, polyline, polygon, rect, circle, ellipse, path, text. Style every element with plain attributes (stroke, fill, stroke-width, font-size, text-anchor). Do not use style tags, CSS classes, scripts, images, gradients, filters, markers or the use element.
-  - Draw arrowheads as small polygons at the ends of lines.
-  - Use dark gray strokes (#2B2A27) and light fills (#F8EDE6, #E8E3DC, #DCE9F5). Highlight the most important part in #C2693D. Leave the background transparent.
-  - Keep text at font-size 12 to 16, with short labels and no LaTeX. Make sure labels do not overlap shapes or each other.
-  - Keep it simple, at most about 40 elements, and show the main idea clearly.
-  - Be accurate: right angles drawn as right angles, the correct number and direction of forces, rays that obey reflection and refraction, correct labels. If you are not sure about a detail, leave it out rather than guess.
+  - Each element may have at most ONE transform: translate(x y), rotate(angle) or scale(s). To combine them, nest groups, for example <g transform="translate(200 120)"><g transform="rotate(-30)">...</g></g>. Never use matrix or skew, and never put two transforms in one attribute.
+  - Use dark gray strokes (#2B2A27) and light fills (#F8EDE6, #E8E3DC, #DCE9F5). Draw force arrows and the main subject in #C2693D. Leave the background transparent.
+  - Keep text at font-size 12 to 16, with short labels and no LaTeX. Keep it simple, at most about 45 elements.
 
-Match the complexity to the student level given. Base the picture on the question and the tutor's answer provided, and keep it consistent with the answer.`;
+Drawing technique that keeps diagrams accurate:
+- SVG's y axis points DOWN. In rotate(angle), positive angles turn clockwise on the screen. So rotate(90) points down, rotate(-90) points up, rotate(180) points left, and rotate(-30) points up and to the right, 30 degrees above horizontal.
+- Draw every arrow once, pointing right from the origin: <line x1="0" y1="0" x2="60" y2="0" stroke-width="2.5"/> plus the head <polygon points="60,0 51,-4.5 51,4.5"/>. Place it with <g transform="translate(px py)"><g transform="rotate(a)">the arrow</g></g>, where (px, py) is where the arrow starts and a is its direction.
+- Tilted objects (a block on a slope, a ladder, a lens) are drawn centered at the origin inside a group rotated by their tilt.
+- To find a point on a surface or at a given angle, compute it with trigonometry and write the numbers. Do not estimate by eye.
+- Right angles get a small square marker. Equal sides get matching tick marks. An angle gets a small arc at its vertex with its label just outside the arc, on the correct side.
+- Put each label 6 to 10 pixels beyond the tip of its arrow or next to the part it names, never on top of a line. Keep labels at least 15 pixels apart and at least 15 pixels inside the viewBox edges.
+- Center the drawing and make it fill most of the viewBox, at least 70 percent of its width. Do not leave large empty margins.
+
+Science conventions:
+- Free-body diagrams: draw all forces from the same point, the center of the object. Weight (mg) points straight down. The normal force N is perpendicular to the contact surface and points away from the surface. Friction acts along the surface and opposes sliding, or the push that would cause sliding if the object is at rest. Tension acts along the rope, away from the object. When forces balance, draw them with equal lengths.
+- Ray diagrams: draw the optical axis and label F, the object and the image. A ray parallel to the axis passes through the focus after a converging lens; a ray through the center of a thin lens goes straight on.
+- Circuits: use standard symbols (battery as a long and a short parallel line, resistor as a zigzag or a small rectangle, switch as a gap with a hinged line, bulb as a circle with a cross, ammeter and voltmeter as circles with A or V), joined by straight lines with right-angle corners.
+- Biology: a simplified labeled outline with a leader line from each label to its part. If you are not sure of a structure's shape, leave it out.
+
+Worked example of the technique, a block at rest on a rough 30 degree slope that rises to the right. Adapt the numbers; do not copy it blindly. The slope runs from (40,250) to (360,65), so friction points up the slope with rotate(-30), the normal force is perpendicular with rotate(-120), and the weight points down with rotate(90). In general, for a slope at angle t that rises to the right, friction is rotate(-t) and the normal force is rotate(-(90+t)).
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><polygon points="40,250 360,250 360,65" fill="#E8E3DC" stroke="#2B2A27" stroke-width="2"/><path d="M 90 250 A 50 50 0 0 0 83.3 225" fill="none" stroke="#2B2A27" stroke-width="1.5"/><text x="100" y="243" font-size="14" fill="#2B2A27">θ</text><g transform="translate(208.5 135.4)"><g transform="rotate(-30)"><rect x="-25" y="-15" width="50" height="30" fill="#DCE9F5" stroke="#2B2A27" stroke-width="2"/></g></g><g transform="translate(208.5 135.4)"><g transform="rotate(-120)"><line x1="0" y1="0" x2="60" y2="0" stroke="#C2693D" stroke-width="2.5"/><polygon points="60,0 51,-4.5 51,4.5" fill="#C2693D"/></g></g><g transform="translate(208.5 135.4)"><g transform="rotate(90)"><line x1="0" y1="0" x2="60" y2="0" stroke="#C2693D" stroke-width="2.5"/><polygon points="60,0 51,-4.5 51,4.5" fill="#C2693D"/></g></g><g transform="translate(208.5 135.4)"><g transform="rotate(-30)"><line x1="0" y1="0" x2="60" y2="0" stroke="#C2693D" stroke-width="2.5"/><polygon points="60,0 51,-4.5 51,4.5" fill="#C2693D"/></g></g><text x="163" y="76" font-size="14" fill="#2B2A27">N</text><text x="214" y="212" font-size="14" fill="#2B2A27">mg</text><text x="268" y="102" font-size="14" fill="#2B2A27">f</text></svg>
+
+Checklist before you answer: every arrow starts at the right point and points the right way; right angles are real right angles; every angle arc is at the correct vertex; every label is near its part, inside the viewBox and not on top of a line; the drawing is centered and fills the picture; the picture agrees with the tutor's answer. If you cannot draw it accurately, use kind "none". Match the complexity to the student level given, and base the picture on the question and the tutor's answer provided.`;
 
 // ---------- Helpers ----------
 function detectMime(b64) {
