@@ -547,6 +547,16 @@ function svgText(x, y, s, anchor = 'middle', size = 13, fill = INK) {
   return `<text x="${n1(x)}" y="${n1(y)}" font-size="${size}" fill="${fill}" text-anchor="${anchor}">${esc(s)}</text>`;
 }
 
+// A text label with a soft white patch behind it, so lines passing under it do not cut through the letters
+function svgTag(x, y, s, anchor = 'middle', size = 13, fill = INK) {
+  const w = String(s).length * size * 0.58 + 6;
+  const rx = anchor === 'start' ? x - 3 : anchor === 'end' ? x - w + 3 : x - w / 2;
+  const patch =
+    `<rect x="${n1(rx)}" y="${n1(y - size + 1)}" width="${n1(w)}" height="${n1(size + 4)}" rx="3" ` +
+    `fill="#FFFFFF" fill-opacity="0.88"/>`;
+  return patch + svgText(x, y, s, anchor, size, fill);
+}
+
 // An arrow from (x, y) in direction (ux, uy), unit vector, with the given total length
 function svgArrow(x, y, ux, uy, len, color = ACCENT, sw = 2.5, dash = '') {
   const hl = Math.min(9, len * 0.55);
@@ -653,7 +663,8 @@ function inclineTemplate(p) {
   ];
   body += svgPolygon([corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)], '#DCE9F5');
 
-  const unit = 80; // length of the mg arrow in pixels
+  // Length of the mg arrow in pixels: 80 normally, shortened on shallow slopes so the tip stays above the base line
+  const unit = Math.max(44, Math.min(80, yb - 12 - C[1]));
   const clamp = (v) => Math.max(14, v);
 
   // Optional dashed components of the weight
@@ -670,9 +681,9 @@ function inclineTemplate(p) {
     }
   }
 
-  // Weight (straight down)
+  // Weight (straight down). The label sits to the left of the arrow tip, clear of the base line.
   body += svgArrow(C[0], C[1], 0, 1, unit);
-  body += arrowLabel(C[0], C[1] + unit, 0, 1, 'mg');
+  body += svgText(C[0] - 9, C[1] + unit - 2, 'mg', 'end', 14, INK);
 
   // Normal force (perpendicular to the slope, away from it)
   const lenN = clamp(unit * c);
@@ -843,13 +854,13 @@ function lensTemplate(p) {
   }
   body += svgText(xl, 22, type === 'convex' ? 'Convex lens' : 'Concave lens', 'middle', 12, MUTED);
 
-  // Focal points F and 2F on both sides
+  // Focal points F and 2F on both sides. Labels get a white patch so rays never cut through them.
   for (const k of [1, 2]) {
     for (const sign of [-1, 1]) {
       const x = xl + sign * k * f * sc;
       if (x >= 18 && x <= 402) {
         body += svgDot(x, yA, 3);
-        body += svgText(x, yA + 18, k === 1 ? 'F' : '2F', 'middle', 12);
+        body += svgTag(x, yA + 19, k === 1 ? 'F' : '2F', 'middle', 12);
       }
     }
   }
@@ -862,7 +873,7 @@ function lensTemplate(p) {
   if (imgLen >= 2) {
     body += svgArrow(xi, yA, 0, imgDir, imgLen, ACCENT, 2.5, v < 0 ? '4 3' : '');
   }
-  body += svgText(xi, imgDir < 0 ? yI - 8 : yI + 16, 'Image', xi > 370 ? 'end' : 'middle', 12, ACCENT);
+  body += svgTag(xi, imgDir < 0 ? yI - 9 : yI + 17, 'Image', xi > 370 ? 'end' : 'middle', 12, ACCENT);
 
   const nature = v > 0 ? 'real' : 'virtual';
   const side = v > 0 ? 'on the opposite side of the lens' : 'on the same side as the object';
@@ -892,7 +903,14 @@ function buildVisual(spec) {
     if (!t) return null;
     const diagram = sanitizeSvg(t.svg);
     if (!diagram) return null;
-    return { kind: 'diagram', title: cleanText(t.title, 60), caption: cleanText(t.caption, 340), ...diagram };
+    // exact: true tells the app this picture was drawn by code from the numbers, not freehand by the AI
+    return {
+      kind: 'diagram',
+      exact: true,
+      title: cleanText(t.title, 60),
+      caption: cleanText(t.caption, 340),
+      ...diagram,
+    };
   }
 
   const title = cleanText(spec.title, 60);
