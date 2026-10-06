@@ -67,8 +67,9 @@ function describeLevel(level) {
 const SYSTEM_PROMPT = `You are Study Helper, a friendly and accurate tutor for school and exam students. You help with mathematics and science (physics, chemistry, biology and earth science).
 
 Rules for every reply:
-- Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ^, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b. Write chemical formulas in plain text (H2O, CO2, NaCl) and use → for reactions.
-- In science calculations include units on every quantity, and say which constants you assume (for example g = 9.8 m/s^2) unless the question gives them.
+- Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b.
+- Write powers with Unicode superscripts (x², a³, m/s², 10⁻³, 2²) and chemical formulas with Unicode subscripts and superscript charges (H₂O, CO₂, Fe₂O₃, Ca(OH)₂, CH₃COOH, Fe³⁺, SO₄²⁻). Put coefficients in front on the normal line (2H₂O, 4Fe + 3O₂ → 2Fe₂O₃). Use → for reactions. Only when an exponent is not a simple whole number (like x^(1/2) or e^(2x)) write it with ^ and brackets.
+- In science calculations include units on every quantity, and say which constants you assume (for example g = 9.8 m/s²) unless the question gives them.
 - Check your arithmetic and units before answering. If the question is unclear, is missing information, or an image is unreadable, ask one short clarifying question instead of guessing.
 - Match your vocabulary, depth and choice of method to the "Student level" given in the message. Do not use methods beyond that level unless the student asks.
 - If a photo shows a diagram, briefly say what you see in it before solving.
@@ -149,6 +150,32 @@ function detectMime(b64) {
   if (b64.startsWith('iVBOR')) return 'image/png';
   if (b64.startsWith('UklGR')) return 'image/webp';
   return 'image/jpeg';
+}
+
+// Safety net for scientific notation: turns Fe2O3 into Fe₂O₃ and 2^2 into 2²
+// in case the model writes them in plain text
+const SUB_DIGITS = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
+const SUP_CHARS = {
+  0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻', '−': '⁻',
+};
+
+function prettifyScience(text) {
+  let out = String(text);
+
+  // Powers with a simple whole-number exponent: x^2, m/s^2, 10^-3
+  out = out.replace(/\^\s*([-−]?)(\d+)/g, (m, sign, digits) => {
+    const chars = (sign ? SUP_CHARS[sign] : '') + digits.split('').map((d) => SUP_CHARS[d]).join('');
+    return chars;
+  });
+
+  // Chemical formulas: a capital letter (and optional small letter) followed by digits, like Fe2O3, H2O, Ca(OH)2
+  const formula = /(?<![A-Za-z])((?:[A-Z][a-z]?\d*|\((?:[A-Z][a-z]?\d*)+\)\d*)+)(?![a-z])/g;
+  out = out.replace(formula, (match) => {
+    if (!/\d/.test(match)) return match;
+    return match.replace(/\d/g, (d) => SUB_DIGITS[d]);
+  });
+
+  return out;
 }
 
 // Checks the login token with Supabase and returns the user (or null)
@@ -974,7 +1001,7 @@ app.post('/solve', checkAuth, async (req, res) => {
       });
     }
 
-    res.json({ answer: text });
+    res.json({ answer: prettifyScience(text) });
   } catch (err) {
     textLimiter.refund(req.userKey);
     console.error('Solve failed:', err.message);
