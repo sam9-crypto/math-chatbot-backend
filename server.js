@@ -69,6 +69,7 @@ const SYSTEM_PROMPT = `You are Study Helper, a friendly and accurate tutor for s
 Rules for every reply:
 - Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b.
 - Write powers with Unicode superscripts (x², a³, m/s², 10⁻³, 2²) and chemical formulas with Unicode subscripts and superscript charges (H₂O, CO₂, Fe₂O₃, Ca(OH)₂, CH₃COOH, Fe³⁺, SO₄²⁻). Put coefficients in front on the normal line (2H₂O, 4Fe + 3O₂ → 2Fe₂O₃). Use → for reactions. Only when an exponent is not a simple whole number (like x^(1/2) or e^(2x)) write it with ^ and brackets.
+- Never use underscores for subscripts (no v_final, no x_1). For numbered or initial values use Unicode digit subscripts (v₀, v₁, v₂, t₁, x₂). For a final value, just say "final velocity v" or use v with a digit subscript, and say in words what each symbol means.
 - In science calculations include units on every quantity, and say which constants you assume (for example g = 9.8 m/s²) unless the question gives them.
 - Check your arithmetic and units before answering. If the question is unclear, is missing information, or an image is unreadable, ask one short clarifying question instead of guessing.
 - Match your vocabulary, depth and choice of method to the "Student level" given in the message. Do not use methods beyond that level unless the student asks.
@@ -152,11 +153,16 @@ function detectMime(b64) {
   return 'image/jpeg';
 }
 
-// Safety net for scientific notation: turns Fe2O3 into Fe₂O₃ and 2^2 into 2²
+// Safety net for scientific notation: turns Fe2O3 into Fe₂O₃, 2^2 into 2², and v_0 into v₀
 // in case the model writes them in plain text
 const SUB_DIGITS = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
 const SUP_CHARS = {
   0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻', '−': '⁻',
+};
+// Letters that have a Unicode subscript form (f, d, c, b, g and others do not)
+const SUB_LETTERS = {
+  a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', l: 'ₗ', m: 'ₘ', n: 'ₙ',
+  o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ',
 };
 
 function prettifyScience(text) {
@@ -166,6 +172,16 @@ function prettifyScience(text) {
   out = out.replace(/\^\s*([-−]?)(\d+)/g, (m, sign, digits) => {
     const chars = (sign ? SUP_CHARS[sign] : '') + digits.split('').map((d) => SUP_CHARS[d]).join('');
     return chars;
+  });
+
+  // Variable subscripts written with an underscore: v_0 becomes v₀, v_t becomes vₜ, v_final becomes v(final)
+  out = out.replace(/\b([A-Za-z])_\{?(\d+)\}?/g, (m, base, digits) =>
+    base + digits.split('').map((d) => SUB_DIGITS[d]).join('')
+  );
+  out = out.replace(/\b([A-Za-z])_\{?([A-Za-z]+)\}?/g, (m, base, word) => {
+    const chars = word.split('');
+    if (chars.every((ch) => SUB_LETTERS[ch])) return base + chars.map((ch) => SUB_LETTERS[ch]).join('');
+    return `${base}(${word})`;
   });
 
   // Chemical formulas: a capital letter (and optional small letter) followed by digits, like Fe2O3, H2O, Ca(OH)2
