@@ -19,6 +19,7 @@ const VISUAL_DAILY_LIMIT = parseInt(process.env.VISUAL_DAILY_LIMIT || '5', 10);
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // secret key: server only, used for account deletion
 
 const MAX_QUESTION_CHARS = 4000;
 const MAX_ANSWER_CHARS = 4000;
@@ -67,10 +68,8 @@ function describeLevel(level) {
 const SYSTEM_PROMPT = `You are Study Helper, a friendly and accurate tutor for school and exam students. You help with mathematics and science (physics, chemistry, biology and earth science).
 
 Rules for every reply:
-- Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b.
-- Write powers with Unicode superscripts (x², a³, m/s², 10⁻³, 2²) and chemical formulas with Unicode subscripts and superscript charges (H₂O, CO₂, Fe₂O₃, Ca(OH)₂, CH₃COOH, Fe³⁺, SO₄²⁻). Put coefficients in front on the normal line (2H₂O, 4Fe + 3O₂ → 2Fe₂O₃). Use → for reactions. Only when an exponent is not a simple whole number (like x^(1/2) or e^(2x)) write it with ^ and brackets.
-- Never use underscores for subscripts (no v_final, no x_1). For numbered or initial values use Unicode digit subscripts (v₀, v₁, v₂, t₁, x₂). For a final value, just say "final velocity v" or use v with a digit subscript, and say in words what each symbol means.
-- In science calculations include units on every quantity, and say which constants you assume (for example g = 9.8 m/s²) unless the question gives them.
+- Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ^, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b. Write chemical formulas in plain text (H2O, CO2, NaCl) and use → for reactions.
+- In science calculations include units on every quantity, and say which constants you assume (for example g = 9.8 m/s^2) unless the question gives them.
 - Check your arithmetic and units before answering. If the question is unclear, is missing information, or an image is unreadable, ask one short clarifying question instead of guessing.
 - Match your vocabulary, depth and choice of method to the "Student level" given in the message. Do not use methods beyond that level unless the student asks.
 - If a photo shows a diagram, briefly say what you see in it before solving.
@@ -151,47 +150,6 @@ function detectMime(b64) {
   if (b64.startsWith('iVBOR')) return 'image/png';
   if (b64.startsWith('UklGR')) return 'image/webp';
   return 'image/jpeg';
-}
-
-// Safety net for scientific notation: turns Fe2O3 into Fe₂O₃, 2^2 into 2², and v_0 into v₀
-// in case the model writes them in plain text
-const SUB_DIGITS = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
-const SUP_CHARS = {
-  0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻', '−': '⁻',
-};
-// Letters that have a Unicode subscript form (f, d, c, b, g and others do not)
-const SUB_LETTERS = {
-  a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', l: 'ₗ', m: 'ₘ', n: 'ₙ',
-  o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ',
-};
-
-function prettifyScience(text) {
-  let out = String(text);
-
-  // Powers with a simple whole-number exponent: x^2, m/s^2, 10^-3
-  out = out.replace(/\^\s*([-−]?)(\d+)/g, (m, sign, digits) => {
-    const chars = (sign ? SUP_CHARS[sign] : '') + digits.split('').map((d) => SUP_CHARS[d]).join('');
-    return chars;
-  });
-
-  // Variable subscripts written with an underscore: v_0 becomes v₀, v_t becomes vₜ, v_final becomes v(final)
-  out = out.replace(/\b([A-Za-z])_\{?(\d+)\}?/g, (m, base, digits) =>
-    base + digits.split('').map((d) => SUB_DIGITS[d]).join('')
-  );
-  out = out.replace(/\b([A-Za-z])_\{?([A-Za-z]+)\}?/g, (m, base, word) => {
-    const chars = word.split('');
-    if (chars.every((ch) => SUB_LETTERS[ch])) return base + chars.map((ch) => SUB_LETTERS[ch]).join('');
-    return `${base}(${word})`;
-  });
-
-  // Chemical formulas: a capital letter (and optional small letter) followed by digits, like Fe2O3, H2O, Ca(OH)2
-  const formula = /(?<![A-Za-z])((?:[A-Z][a-z]?\d*|\((?:[A-Z][a-z]?\d*)+\)\d*)+)(?![a-z])/g;
-  out = out.replace(formula, (match) => {
-    if (!/\d/.test(match)) return match;
-    return match.replace(/\d/g, (d) => SUB_DIGITS[d]);
-  });
-
-  return out;
 }
 
 // Checks the login token with Supabase and returns the user (or null)
@@ -970,7 +928,7 @@ function buildVisual(spec) {
 }
 
 // ---------- Routes ----------
-app.get('/', (req, res) => res.send('Study Helper backend is running'));
+app.get('/', (req, res) => res.send('GlenoraX backend is running'));
 
 app.post('/solve', checkAuth, async (req, res) => {
   if (!GEMINI_API_KEY || !GEMINI_MODEL) {
@@ -1017,7 +975,7 @@ app.post('/solve', checkAuth, async (req, res) => {
       });
     }
 
-    res.json({ answer: prettifyScience(text) });
+    res.json({ answer: text });
   } catch (err) {
     textLimiter.refund(req.userKey);
     console.error('Solve failed:', err.message);
@@ -1084,6 +1042,54 @@ app.post('/visual', checkAuth, async (req, res) => {
     visualLimiter.refund(req.userKey);
     console.error('Visual failed:', err.message);
     res.status(502).json({ error: 'The tutor is busy right now. Please try again in a moment.' });
+  }
+});
+
+// Deletes the logged-in user's chats and account (needs the secret key, which stays on the server only)
+app.delete('/account', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(500).json({ error: 'Account deletion is not set up yet.' });
+  }
+
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Please log in again.' });
+
+  try {
+    const user = await getUserFromToken(token);
+    if (!user) return res.status(401).json({ error: 'Please log in again.' });
+
+    const admin = {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    };
+
+    // 1) the user's messages and chats
+    for (const table of ['messages', 'conversations']) {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?user_id=eq.${user.id}`, {
+        method: 'DELETE',
+        headers: admin,
+      });
+      if (!r.ok) {
+        console.error('Delete failed for', table, r.status);
+        return res.status(502).json({ error: 'Could not delete your data. Please try again.' });
+      }
+    }
+
+    // 2) the account itself
+    const del = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+      method: 'DELETE',
+      headers: admin,
+    });
+    if (!del.ok) {
+      console.error('Delete user failed', del.status);
+      return res.status(502).json({ error: 'Could not delete your account. Please try again.' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Account deletion failed:', err.message);
+    res.status(502).json({ error: 'Could not delete your account. Please try again.' });
   }
 });
 
