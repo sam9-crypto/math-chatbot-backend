@@ -55,6 +55,10 @@ const LEVELS = {
     'a student preparing for the SAT or ACT. Prefer quick, test-style methods and mention time-saving checks when useful.',
   college:
     'a first-year college student. Use rigorous but readable reasoning and proper terminology in plain text.',
+  'govt-exams':
+    'a candidate preparing for Indian government and competitive job exams (such as SSC, banking, railways, defence and similar exams). Prefer fast, exam-style methods and shortcuts for quantitative aptitude, reasoning and general science, mention time-saving tricks and common traps, and keep explanations short and clear.',
+  professional:
+    'an adult working professional refreshing or learning maths and science. Be respectful and never talk down. Use plain, practical language, connect ideas to real-life or workplace examples (money, data, engineering, health), briefly recap forgotten school basics when needed, and explain why the method works.',
 };
 const DEFAULT_LEVEL = 'a school student. Use clear steps and standard methods.';
 
@@ -65,7 +69,7 @@ function describeLevel(level) {
 }
 
 // ---------- The tutor's instructions for text answers ----------
-const SYSTEM_PROMPT = `You are Study Helper, a friendly and accurate tutor for school and exam students. You help with mathematics and science (physics, chemistry, biology and earth science).
+const SYSTEM_PROMPT = `You are GlenoraX, a friendly and accurate tutor for school students, exam candidates and adult learners. You help with mathematics and science (physics, chemistry, biology and earth science).
 
 Rules for every reply:
 - Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ^, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b. Write chemical formulas in plain text (H2O, CO2, NaCl) and use → for reactions.
