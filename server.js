@@ -16,6 +16,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL;
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '50', 10);
 const VISUAL_DAILY_LIMIT = parseInt(process.env.VISUAL_DAILY_LIMIT || '5', 10);
+const PRACTICE_DAILY_LIMIT = parseInt(process.env.PRACTICE_DAILY_LIMIT || '30', 10);
+const QUIZ_DAILY_LIMIT = parseInt(process.env.QUIZ_DAILY_LIMIT || '10', 10);
 const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
@@ -48,17 +50,9 @@ const LEVELS = {
   'grades-11-12':
     'a senior secondary student (Grades 11 to 12). Use standard methods and proper terminology, including trigonometry, logarithms and calculus where relevant, and board-level physics, chemistry and biology.',
   jee:
-    'a student preparing for JEE (mathematics, physics and chemistry). Prefer efficient exam-style methods, state the key formula or idea used, and point out common traps.',
+    'a student preparing for JEE (mathematics, physics and chemistry). Prefer efficient exam-style methods, state the key formula or idea used, and point out common traps. Accuracy matters most: work through the problem carefully, state the formula or principle before using it, double-check every calculation and unit, and if you are not sure of a fact or result, say so plainly instead of guessing.',
   neet:
-    'a student preparing for NEET (physics, chemistry and biology). Use exam-style methods for numericals, give precise biology terminology, and point out commonly confused facts and traps.',
-  'sat-act':
-    'a student preparing for the SAT or ACT. Prefer quick, test-style methods and mention time-saving checks when useful.',
-  college:
-    'a first-year college student. Use rigorous but readable reasoning and proper terminology in plain text.',
-  'govt-exams':
-    'a candidate preparing for Indian government and competitive job exams (such as SSC, banking, railways, defence and similar exams). Prefer fast, exam-style methods and shortcuts for quantitative aptitude, reasoning and general science, mention time-saving tricks and common traps, and keep explanations short and clear.',
-  professional:
-    'an adult working professional refreshing or learning maths and science. Be respectful and never talk down. Use plain, practical language, connect ideas to real-life or workplace examples (money, data, engineering, health), briefly recap forgotten school basics when needed, and explain why the method works.',
+    'a student preparing for NEET (physics, chemistry and biology). Use exam-style methods for numericals, give precise biology terminology, and point out commonly confused facts and traps. Accuracy matters most: use only well-established NCERT-level facts, double-check every calculation and unit, and if you are not sure of a fact, say so plainly instead of guessing.',
 };
 const DEFAULT_LEVEL = 'a school student. Use clear steps and standard methods.';
 
@@ -69,7 +63,7 @@ function describeLevel(level) {
 }
 
 // ---------- The tutor's instructions for text answers ----------
-const SYSTEM_PROMPT = `You are GlenoraX, a friendly and accurate tutor for school students, exam candidates and adult learners. You help with mathematics and science (physics, chemistry, biology and earth science).
+const SYSTEM_PROMPT = `You are GlenoraX, a friendly and accurate tutor for school students and exam candidates. You help with mathematics and science (physics, chemistry, biology and earth science).
 
 Rules for every reply:
 - Write everything in plain text. Never use LaTeX (no dollar signs, no \\frac, \\sqrt, \\times, \\text, \\cdot, etc.). Use symbols like √, ×, ÷, ^, ≈, →, ≠, ≤, ≥, π, θ, Δ, ° and write fractions as a/b. Write chemical formulas in plain text (H2O, CO2, NaCl) and use → for reactions.
@@ -217,9 +211,13 @@ function makeLimiter(limit) {
 
 const textLimiter = makeLimiter(DAILY_LIMIT);
 const visualLimiter = makeLimiter(VISUAL_DAILY_LIMIT);
+const practiceLimiter = makeLimiter(PRACTICE_DAILY_LIMIT);
+const quizLimiter = makeLimiter(QUIZ_DAILY_LIMIT);
 setInterval(() => {
   textLimiter.sweep();
   visualLimiter.sweep();
+  practiceLimiter.sweep();
+  quizLimiter.sweep();
 }, 60 * 60 * 1000);
 
 // Calls Gemini, retrying on temporary errors
@@ -932,6 +930,70 @@ function buildVisual(spec) {
 }
 
 // ---------- Routes ----------
+
+// ---------- Practice questions and quizzes ----------
+const PRACTICE_PROMPT = `You write practice questions for a student of mathematics or science. Reply with ONE JSON object and nothing else, in exactly this shape:
+{"questions":["...","...","..."]}
+
+Rules:
+- Write exactly 3 NEW questions on the same concept as the student's question. Do not repeat the student's question and do not give answers.
+- Make them a little different from each other and slowly harder: easy, medium, then a bit harder.
+- Match the student level given. For JEE or NEET students use real exam style. For school students use the style of their textbooks.
+- Each question must be complete on its own, short (one or two sentences), with all numbers and units given, and must have one clear answer.
+- Plain text only. Never use LaTeX or dollar signs. Use symbols like √, ×, ÷, ^, π, θ, ° and write fractions as a/b.`;
+
+const QUIZ_PROMPT = `You write a short multiple-choice quiz for a student of mathematics or science. Reply with ONE JSON object and nothing else, in exactly this shape:
+{"title":"short topic title","questions":[{"q":"...","options":["...","...","...","..."],"correct":0,"explanation":"..."}]}
+
+Rules:
+- Write exactly 5 questions on the topic and concept of the student's question, from easy to harder. Match the student level given. For JEE or NEET students use real exam style.
+- Each question has exactly 4 options and exactly ONE correct option. "correct" is the position (0 to 3) of the right option.
+- ACCURACY IS THE MOST IMPORTANT RULE. Solve every question yourself first, check the arithmetic and units, and only then write the options. The marked option must really be correct and the other three must really be wrong but believable (common mistakes). Never use "all of the above" or "none of the above".
+- For numerical answers give the number with units in each option, and make the wrong options clearly different from the right one.
+- "explanation" is one or two short sentences showing why the right option is correct.
+- Plain text only. Never use LaTeX or dollar signs. Use symbols like √, ×, ÷, ^, π, θ, ° and write fractions as a/b.
+- Keep every question under 300 characters and every option under 100 characters.`;
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function buildQuiz(spec) {
+  if (!spec || !Array.isArray(spec.questions)) return null;
+  const questions = [];
+  for (const raw of spec.questions.slice(0, 5)) {
+    if (!raw || !Array.isArray(raw.options) || raw.options.length !== 4) continue;
+    const q = cleanText(raw.q, 400);
+    const options = raw.options.map((o) => cleanText(String(o), 140));
+    const correct = Number(raw.correct);
+    if (!q || options.some((o) => !o) || new Set(options).size !== 4) continue;
+    if (!Number.isInteger(correct) || correct < 0 || correct > 3) continue;
+    const right = options[correct];
+    shuffleInPlace(options);
+    questions.push({
+      q,
+      options,
+      correct: options.indexOf(right),
+      explanation: cleanText(raw.explanation, 400),
+    });
+  }
+  if (questions.length < 3) return null;
+  return { title: cleanText(spec.title, 80) || 'Quick quiz', questions };
+}
+
+function buildPractice(spec) {
+  if (!spec || !Array.isArray(spec.questions)) return null;
+  const questions = spec.questions
+    .map((q) => cleanText(typeof q === 'string' ? q : '', 300))
+    .filter((q) => q.length > 5)
+    .slice(0, 3);
+  return questions.length >= 2 ? questions : null;
+}
+
 app.get('/', (req, res) => res.send('GlenoraX backend is running'));
 
 app.post('/solve', checkAuth, async (req, res) => {
@@ -1045,6 +1107,101 @@ app.post('/visual', checkAuth, async (req, res) => {
   } catch (err) {
     visualLimiter.refund(req.userKey);
     console.error('Visual failed:', err.message);
+    res.status(502).json({ error: 'The tutor is busy right now. Please try again in a moment.' });
+  }
+});
+
+
+// Suggests 3 similar practice questions for the answer the student just saw
+app.post('/practice', checkAuth, async (req, res) => {
+  if (!GEMINI_API_KEY || !GEMINI_MODEL) {
+    return res.status(500).json({ error: 'The server is not set up yet.' });
+  }
+
+  const body = req.body || {};
+  const question = typeof body.question === 'string' ? body.question.trim() : '';
+  const answer = typeof body.answer === 'string' ? body.answer.trim().slice(0, MAX_ANSWER_CHARS) : '';
+  if (!question && !answer) {
+    return res.status(400).json({ error: 'There is nothing to practise yet.' });
+  }
+  if (question.length > MAX_QUESTION_CHARS) {
+    return res.status(400).json({ error: 'That question is too long.' });
+  }
+  if (!practiceLimiter.take(req.userKey)) {
+    return res.status(429).json({ error: 'Daily limit for practice questions reached. Please come back tomorrow.' });
+  }
+
+  const parts = [
+    {
+      text:
+        `Student level: ${describeLevel(body.level)}\n` +
+        `Student's question: ${question || '(the student sent a photo)'}\n` +
+        `Tutor's answer:\n${answer || '(none)'}`,
+    },
+  ];
+
+  try {
+    const data = await callGemini(parts, {
+      system: PRACTICE_PROMPT,
+      config: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: 'application/json' },
+    });
+    const { text } = extractText(data);
+    const questions = buildPractice(text ? parseJsonLoose(text) : null);
+    if (!questions) {
+      practiceLimiter.refund(req.userKey);
+      return res.status(422).json({ error: "I couldn't make practice questions for this one. Try again." });
+    }
+    res.json({ questions });
+  } catch (err) {
+    practiceLimiter.refund(req.userKey);
+    console.error('Practice failed:', err.message);
+    res.status(502).json({ error: 'The tutor is busy right now. Please try again in a moment.' });
+  }
+});
+
+// Makes a 5-question multiple-choice quiz on the topic of the student's question
+app.post('/quiz', checkAuth, async (req, res) => {
+  if (!GEMINI_API_KEY || !GEMINI_MODEL) {
+    return res.status(500).json({ error: 'The server is not set up yet.' });
+  }
+
+  const body = req.body || {};
+  const question = typeof body.question === 'string' ? body.question.trim() : '';
+  const answer = typeof body.answer === 'string' ? body.answer.trim().slice(0, MAX_ANSWER_CHARS) : '';
+  if (!question && !answer) {
+    return res.status(400).json({ error: 'There is nothing to make a quiz about yet.' });
+  }
+  if (question.length > MAX_QUESTION_CHARS) {
+    return res.status(400).json({ error: 'That question is too long.' });
+  }
+  if (!quizLimiter.take(req.userKey)) {
+    return res.status(429).json({ error: 'Daily limit for quizzes reached. Please come back tomorrow.' });
+  }
+
+  const parts = [
+    {
+      text:
+        `Student level: ${describeLevel(body.level)}\n` +
+        `Student's question: ${question || '(the student sent a photo)'}\n` +
+        `Tutor's answer:\n${answer || '(none)'}`,
+    },
+  ];
+
+  try {
+    const data = await callGemini(parts, {
+      system: QUIZ_PROMPT,
+      config: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: 'application/json' },
+    });
+    const { text } = extractText(data);
+    const quiz = buildQuiz(text ? parseJsonLoose(text) : null);
+    if (!quiz) {
+      quizLimiter.refund(req.userKey);
+      return res.status(422).json({ error: "I couldn't make a good quiz for this one. Try again." });
+    }
+    res.json({ quiz });
+  } catch (err) {
+    quizLimiter.refund(req.userKey);
+    console.error('Quiz failed:', err.message);
     res.status(502).json({ error: 'The tutor is busy right now. Please try again in a moment.' });
   }
 });
